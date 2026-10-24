@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strategic Intelligent Agent</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f4f5f7; color: #1f2430; }
+  header { background: #1f2430; color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; }
+  button { cursor: pointer; border: none; border-radius: 8px; padding: 9px 16px; font-size: 14px; background: #3b5bdb; color: #fff; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.secondary { background: #e3e6ee; color: #1f2430; }
+  button.green { background: #2f9e44; }
+  #setup { max-width: 460px; margin: 80px auto; background: #fff; padding: 32px; border-radius: 14px; text-align: center; }
+  #setup .row { display: flex; gap: 12px; justify-content: center; margin-top: 20px; }
+  #app { display: none; max-width: 1100px; margin: 20px auto; padding: 0 16px; gap: 16px; flex-wrap: wrap; }
+  .panel { background: #fff; border-radius: 14px; padding: 16px; }
+  #chatPanel { flex: 2 1 480px; display: flex; flex-direction: column; height: 78vh; }
+  #chat { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+  .bubble { max-width: 85%; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; line-height: 1.5; }
+  .bubble.user { align-self: flex-end; background: #3b5bdb; color: #fff; }
+  .bubble.assistant { align-self: flex-start; background: #eceef4; }
+  .bubble.error { align-self: center; background: #ffe3e3; color: #c92a2a; }
+  #progress { min-height: 20px; font-size: 13px; color: #6b7280; margin: 8px 4px; }
+  #inputRow { display: flex; gap: 8px; }
+  #input { flex: 1; padding: 10px 12px; border: 1px solid #c8ccd8; border-radius: 8px; font-size: 14px; }
+  #stmtPanel { flex: 1 1 300px; align-self: flex-start; }
+  #stmtPanel h2 { font-size: 16px; margin: 0 0 10px; }
+  #stmtText { white-space: pre-wrap; line-height: 1.6; background: #f8f9fc; border-radius: 8px; padding: 12px; min-height: 80px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; color: #fff; margin-bottom: 10px; }
+  .badge.draft { background: #f08c00; }
+  .badge.confirmed { background: #2f9e44; }
+  .badge.unconfirmed { background: #868e96; }
+  #stmtBtns { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Strategic Intelligent Agent</h1>
+  <button class="secondary" id="newBtn">New project</button>
+</header>
+
+<div id="setup">
+  <h2>New project</h2>
+  <p>Choose the strategic domain</p>
+  <div class="row">
+    <button data-domain="financial">Financial</button>
+    <button data-domain="economic">Economic</button>
+  </div>
+</div>
+
+<div id="app">
+  <div class="panel" id="chatPanel">
+    <div id="chat"></div>
+    <div id="progress"></div>
+    <div id="inputRow">
+      <input id="input" placeholder="Describe your problem or goal..." dir="auto">
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <div class="panel" id="stmtPanel" style="display:none">
+    <h2>Problem statement</h2>
+    <span class="badge" id="stmtStatus"></span>
+    <div id="stmtText" dir="auto"></div>
+    <div id="stmtBtns">
+      <button class="green" id="btnConfirm">Confirm</button>
+      <button class="secondary" id="btnEdit">Edit</button>
+      <button class="secondary" id="btnProceed">Continue without confirming</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:8000";
+let pid = localStorage.getItem("pid");
+let mode = "message";     // "message" أو "edit"
+let busy = false;
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- عرض ----------
+function addBubble(role, text) {
+  const div = document.createElement("div");
+  div.className = "bubble " + role;
+  div.setAttribute("dir", "auto");
+  div.textContent = text;
+  $("chat").appendChild(div);
+  $("chat").scrollTop = $("chat").scrollHeight;
+  return div;
+}
+
+function renderStatement(text, status) {
+  if (!text) { $("stmtPanel").style.display = "none"; return; }
+  $("stmtPanel").style.display = "block";
+  $("stmtText").textContent = text;
+  $("stmtStatus").textContent = status;
+  $("stmtStatus").className = "badge " + status;
+  const confirmed = status === "confirmed";
+  $("btnConfirm").disabled = confirmed;
+  $("btnProceed").disabled = confirmed;
+}
+
+function showApp() {
+  $("setup").style.display = "none";
+  $("app").style.display = "flex";
+}
+
+function showSetup() {
+  $("app").style.display = "none";
+  $("setup").style.display = "block";
+}
+
+function setBusy(value) {
+  busy = value;
+  for (const id of ["sendBtn", "btnConfirm", "btnEdit", "btnProceed"]) {
+    $(id).disabled = value;
+  }
+}
+
+// ---------- إنشاء المشروع ----------
+document.querySelectorAll("[data-domain]").forEach((btn) => {
+  btn.onclick = async () => {
+    const res = await fetch(API + "/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: btn.dataset.domain }),
+    });
+    const data = await res.json();
+    pid = data.project_id;
+    localStorage.setItem("pid", pid);
+    $("chat").innerHTML = "";
+    renderStatement("", "none");
+    addBubble("assistant", "Describe the problem or goal you want to solve.");
+    showApp();
+  };
+});
+
+$("newBtn").onclick = () => {
+  localStorage.removeItem("pid");
+  pid = null;
+  showSetup();
+};
+
+// ---------- الإرسال مع Streaming ----------
+async function send(message, action) {
+  if (busy) return;
+  setBusy(true);
+  if (message) addBubble("user", message);
+
+  let bubble = null;
+
+  const handle = (event, data) => {
+    if (event === "progress") {
+      if (data.kind === "statement_replace" && bubble) {
+        bubble.textContent = data.text;        // الحارس صلّح البيان
+      } else if (data.message) {
+        $("progress").textContent = data.message;
+      }
+    } else if (event === "token") {
+      if (!bubble) bubble = addBubble("assistant", "");
+      bubble.textContent += data.text;
+      $("chat").scrollTop = $("chat").scrollHeight;
+    } else if (event === "error") {
+      addBubble("error", data.error);
+    } else if (event === "done") {
+      renderStatement(data.statement, data.statement_status);
+      $("progress").textContent = "";
+    }
+  };
+
+  try {
+    const res = await fetch(API + "/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: pid, message: message, user_action: action }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      addBubble("error", err.detail || "Request failed");
+      return;
+    }
+
+    // قراءة الـ SSE: كل حدث مفصول بسطر فاضي
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let cut;
+      while ((cut = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+
+        let event = "message", data = "";
+        for (const line of block.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (data) handle(event, JSON.parse(data));
+      }
+    }
+  } catch (e) {
+    addBubble("error", "Connection error: " + e.message);
+  } finally {
+    mode = "message";
+    $("input").placeholder = "Describe your problem or goal...";
+    setBusy(false);
+    // رجّع حالة الأزرار حسب حالة البيان
+    const status = $("stmtStatus").textContent;
+    if (status === "confirmed") { $("btnConfirm").disabled = true; $("btnProceed").disabled = true; }
+  }
+}
+
+// ---------- الأزرار ----------
+function sendFromInput() {
+  const text = $("input").value.trim();
+  if (!text) return;
+  $("input").value = "";
+  send(text, mode);
+}
+
+$("sendBtn").onclick = sendFromInput;
+$("input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendFromInput(); });
+
+$("btnConfirm").onclick = () => send("", "confirm");
+$("btnProceed").onclick = () => send("", "proceed");
+$("btnEdit").onclick = () => {
+  mode = "edit";
+  $("input").placeholder = "Write what you want to change in the statement...";
+  $("input").focus();
+};
+
+// ---------- استرجاع مشروع محفوظ ----------
+async function restore() {
+  if (!pid) return showSetup();
+  try {
+    const res = await fetch(API + "/projects/" + pid);
+    if (!res.ok) throw new Error("not found");
+    const p = await res.json();
+    $("chat").innerHTML = "";
+    if (!p.messages.length) addBubble("assistant", "Describe the problem or goal you want to solve.");
+    p.messages.forEach((m) => addBubble(m.role, m.content));
+    renderStatement(p.statement, p.statement_status);
+    showApp();
+  } catch (e) {
+    localStorage.removeItem("pid");
+    pid = null;
+    showSetup();
+  }
+}
+
+restore();
+</script>
+</body>
+</html>

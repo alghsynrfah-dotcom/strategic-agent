@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+langchain-openai
+langgraph
+langgraph-checkpoint-sqlite
