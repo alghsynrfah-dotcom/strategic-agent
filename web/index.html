@@ -34,6 +34,9 @@
   .badge.confirmed { background: #2f9e44; }
   .badge.unconfirmed { background: #868e96; }
   #stmtBtns { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .extra { margin-top: 18px; }
+  .extra h2 { font-size: 16px; margin: 0 0 8px; }
+  .extraText { white-space: pre-wrap; line-height: 1.6; background: #f8f9fc; border-radius: 8px; padding: 12px; }
 </style>
 </head>
 <body>
@@ -71,6 +74,14 @@
       <button class="secondary" id="btnEdit">Edit</button>
       <button class="secondary" id="btnProceed">Continue without confirming</button>
     </div>
+    <div class="extra" id="planBox" style="display:none">
+      <h2>Solution plan</h2>
+      <div class="extraText" id="planText" dir="auto"></div>
+    </div>
+    <div class="extra" id="riskBox" style="display:none">
+      <h2>Risk analysis</h2>
+      <div class="extraText" id="riskText" dir="auto"></div>
+    </div>
   </div>
 </div>
 
@@ -104,6 +115,19 @@ function renderStatement(text, status) {
   $("btnProceed").disabled = confirmed;
 }
 
+function renderExtras(plan, risks) {
+  $("planText").textContent = plan || "";
+  $("riskText").textContent = risks || "";
+  $("planBox").style.display = plan ? "block" : "none";
+  $("riskBox").style.display = risks ? "block" : "none";
+}
+
+function appendExtra(section, text) {
+  const key = section === "plan" ? "plan" : "risk";
+  $(key + "Box").style.display = "block";
+  $(key + "Text").textContent += text;
+}
+
 function showApp() {
   $("setup").style.display = "none";
   $("app").style.display = "flex";
@@ -134,6 +158,7 @@ document.querySelectorAll("[data-domain]").forEach((btn) => {
     localStorage.setItem("pid", pid);
     $("chat").innerHTML = "";
     renderStatement("", "none");
+    renderExtras("", "");
     addBubble("assistant", "Describe the problem or goal you want to solve.");
     showApp();
   };
@@ -161,13 +186,18 @@ async function send(message, action) {
         $("progress").textContent = data.message;
       }
     } else if (event === "token") {
-      if (!bubble) bubble = addBubble("assistant", "");
-      bubble.textContent += data.text;
-      $("chat").scrollTop = $("chat").scrollHeight;
+      if (data.section === "plan" || data.section === "risks") {
+        appendExtra(data.section, data.text);
+      } else {
+        if (!bubble) bubble = addBubble("assistant", "");
+        bubble.textContent += data.text;
+        $("chat").scrollTop = $("chat").scrollHeight;
+      }
     } else if (event === "error") {
       addBubble("error", data.error);
     } else if (event === "done") {
       renderStatement(data.statement, data.statement_status);
+      renderExtras(data.plan, data.risks);
       $("progress").textContent = "";
     }
   };
@@ -250,6 +280,7 @@ async function restore() {
     if (!p.messages.length) addBubble("assistant", "Describe the problem or goal you want to solve.");
     p.messages.forEach((m) => addBubble(m.role, m.content));
     renderStatement(p.statement, p.statement_status);
+    renderExtras(p.plan, p.risks);
     showApp();
   } catch (e) {
     localStorage.removeItem("pid");

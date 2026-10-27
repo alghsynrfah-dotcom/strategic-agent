@@ -12,7 +12,8 @@ class Kind:
     TOOL = "tool"
     ASK = "ask"
     DRAFT = "draft"
-    REVISE = "revise"
+    PLAN = "plan"
+    RISKS = "risks"
     GUARD = "guard"
     AWAITING = "awaiting_confirmation"
     TOKEN = "token"
@@ -32,9 +33,9 @@ def progress(kind: str, message: str) -> None:
     _send({"kind": kind, "message": message})
 
 
-def token(text: str) -> None:
-    """كلمة من الرد (Streaming)."""
-    _send({"kind": Kind.TOKEN, "text": text})
+def token(text: str, section: str = "") -> None:
+    """كلمة من الرد. section فاضي = المحادثة، plan أو risks = صندوقها بالواجهة."""
+    _send({"kind": Kind.TOKEN, "text": text, "section": section})
 
 
 def replace_statement(text: str) -> None:

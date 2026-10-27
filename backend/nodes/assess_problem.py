@@ -21,6 +21,11 @@ def _has(raw: dict, name: str) -> bool:
 
 def assess_problem(state):
     """الموديل بيستخرج الأدلة، والكود هو اللي بيقرر الجاهزية."""
+    # تأكيد أو متابعة على بيان موجود: ما في شي جديد نقيّمو
+    if state.get("user_action") in ("confirm", "proceed") and state.get("statement"):
+        events.progress(Kind.ASSESSMENT, "Nothing new to assess, keeping the previous assessment")
+        return {"assessment": state.get("assessment") or {}}
+
     events.progress(Kind.THINKING, "Analyzing the problem")
 
     prompt = ASSESS_PROMPT.format(

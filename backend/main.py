@@ -21,7 +21,9 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
-        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5174",    
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -54,6 +56,8 @@ def build_result(state: dict, project_id: str, execution_time: float) -> dict:
         "statement": state.get("statement", ""),
         "statement_status": state.get("statement_status", "none"),
         "assumptions": state.get("assumptions", []),
+        "plan": state.get("plan", ""),
+        "risks": state.get("risks", ""),
         "questions_asked": state.get("questions_asked", 0),
         "execution_time": round(execution_time, 3),
     }
@@ -119,7 +123,7 @@ def chat_stream(request: ChatRequest):
             state = dict(graph.get_state(config).values)
             result = build_result(state, request.project_id, time.perf_counter() - start_time)
 
-            # حفظ رد الوكيل + المشكلة الأولية + البيان وحالته
+            # حفظ رد الوكيل + المشكلة الأولية + البيان وحالته + الخطة والمخاطر
             if result["response"]:
                 storage.add_message(request.project_id, "assistant", result["response"])
             storage.update_project(
@@ -127,6 +131,8 @@ def chat_stream(request: ChatRequest):
                 state.get("initial_problem", ""),
                 state.get("statement", ""),
                 state.get("statement_status", "none"),
+                state.get("plan", ""),
+                state.get("risks", ""),
             )
 
             yield sse("done", result)

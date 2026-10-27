@@ -1,3 +1,4 @@
+
 from backend import events
 from backend.events import Kind
 
@@ -14,6 +15,7 @@ def load_context(state):
 
     memory = state.get("memory", "")
     knowledge = state.get("knowledge", "")
+    asked = state.get("questions_asked", 0)
 
     events.progress(
         Kind.CONTEXT,
@@ -22,7 +24,7 @@ def load_context(state):
 
     return {
         "initial_problem": state.get("initial_problem") or first_problem,
-        "questions_asked": state.get("questions_asked", 0),
+        "questions_asked": asked,
         "memory": memory,
         "knowledge": knowledge,
         "statement_status": state.get("statement_status", "none"),

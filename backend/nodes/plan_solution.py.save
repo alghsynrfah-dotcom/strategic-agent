@@ -1,0 +1,47 @@
+from backend import events
+from backend.agent.llm import stream_text
+from backend.events import Kind
+from backend.nodes.helpers import detect_language, format_conversation
+
+
+PLAN_PROMPT = """
+STRICT RULES:
+- Reply in the same language the user writes in.
+- Never invent facts not present in the conversation or the confirmed statement.
+- Stay focused on high-level strategic planning only.
+
+ROLE: You are a strategic planner.
+OUTPUT LANGUAGE: {language}.
+
+Confirmed / current problem statement:
+{statement}
+
+Conversation:
+{conversation}
+
+Write a concise high-level solution plan (maximum 150 words) with 3–5 numbered steps.
+Each step should be actionable at a strategic level (not detailed implementation).
+Do not ask questions. Output ONLY the plan.
+"""
+
+
+def plan_solution(state):
+    """سلسلة ثابتة بعد التأكيد: تخطيط الحل."""
+    events.progress(Kind.THINKING, "Planning the solution")
+
+    messages = state.get("messages", [])
+    language = detect_language(messages)
+
+    prompt = PLAN_PROMPT.format(
+        language=language,
+        statement=state.get("statement", ""),
+        conversation=format_conversation(messages),
+    )
+    text = stream_text(prompt)
+
+    return {
+        "plan": text,
+        "response": text,
+        "decision": "plan",
+        "messages": [{"role": "assistant", "content": text}],
+   cccccc

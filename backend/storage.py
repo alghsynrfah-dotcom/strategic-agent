@@ -26,6 +26,15 @@ def _execute(sql, params=(), fetch=None):
         conn.close()
 
 
+def _ensure_columns():
+    """بيضيف أعمدة الخطة والمخاطر للجدول الموجود بدون ما يمسح البيانات."""
+    for column in ("plan", "risks"):
+        try:
+            _execute(f"ALTER TABLE projects ADD COLUMN {column} TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # العمود موجود أصلاً
+
+
 def init_db():
     _execute("""
         CREATE TABLE IF NOT EXISTS projects (
@@ -47,6 +56,7 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+    _ensure_columns()
 
 
 def create_project(project_id: str, domain: str):
@@ -75,14 +85,12 @@ def list_messages(project_id: str):
     )
 
 
-def update_project(project_id: str, initial_problem: str, statement: str, status: str):
-    _execute(
-        "UPDATE projects SET initial_problem = ?, statement = ?, statement_status = ? WHERE id = ?",
-        (initial_problem, statement, status, project_id),
-    )
+def update_project(project_id: str, initial_problem: str, statement: str, status: str,
+                   plan: str = "", risks: str = ""):
     # البيان المؤكد صراحة بيتخزن لحاله، وبينمسح إذا البيان رجع للتعديل
     confirmed = statement if status == "confirmed" else ""
     _execute(
-        "UPDATE projects SET confirmed_statement = ? WHERE id = ?",
-        (confirmed, project_id),
+        "UPDATE projects SET initial_problem = ?, statement = ?, statement_status = ?, "
+        "confirmed_statement = ?, plan = ?, risks = ? WHERE id = ?",
+        (initial_problem, statement, status, confirmed, plan, risks, project_id),
     )

@@ -83,11 +83,13 @@ print("\n[5] تعديل ثم تأكيد")
 pid = new_project()
 chat(pid, "We are a 20 person software company, profits dropped 15 percent this year because customers are leaving")
 r = chat(pid, "Make it shorter", "edit")
-check("decision is revise", r["decision"] == "revise", r["decision"])
+check("edit re-evaluates (draft or ask, not revise)", r["decision"] in ("draft", "ask"), r["decision"])
 check("still draft after edit", r["statement_status"] == "draft")
 r = chat(pid, "", "confirm")
 check("status confirmed", r["statement_status"] == "confirmed", r["statement_status"])
-check("decision is finalize", r["decision"] == "finalize", r["decision"])
+check("pipeline ended at risks", r["decision"] == "risks", r["decision"])
+check("plan is not empty", bool(r["plan"].strip()))
+check("risks is not empty", bool(r["risks"].strip()))
 
 print("\n[6] تعديلات متتالية: لازم يضل البيان 3 أجزاء")
 pid = new_project()
@@ -119,7 +121,24 @@ pid = new_project()
 chat(pid, "We are a 20 person software company, profits dropped 15 percent this year because customers are leaving")
 r = chat(pid, "Make it shorter", "edit")
 k = r["_kinds"]
-check("assessment ran before revise", "assessment" in k and "revise" in k and k.index("assessment") < k.index("revise"), str(k))
-check("agent chose a tool", "tool" in k, str(k))
+check("assessment ran before the agent", "assessment" in k and "agent" in k and k.index("assessment") < k.index("agent"), str(k))
+check("no revise step anymore", "revise" not in k, str(k))
+
+PROBLEM = "We are a 20 person software company, profits dropped 15 percent this year because customers are leaving"
+
+print("\n[10] بعد التأكيد: خطة ثم مخاطر، والتقييم بيتخطّى")
+pid = new_project()
+chat(pid, PROBLEM)
+r = chat(pid, "", "confirm")
+k = r["_kinds"]
+check("plan runs before risks", "plan" in k and "risks" in k and k.index("plan") < k.index("risks"), str(k))
+check("assessment model call skipped", "thinking" not in k, str(k))
+
+print("\n[11] متابعة بدون تأكيد: خطة مع بقاء البيان غير معتمد")
+pid = new_project()
+chat(pid, PROBLEM)
+r = chat(pid, "", "proceed")
+check("statement stays unconfirmed", r["statement_status"] == "unconfirmed", r["statement_status"])
+check("plan still generated", bool(r["plan"].strip()))
 
 print(f"\n=== {sum(results)} / {len(results)} passed ===")

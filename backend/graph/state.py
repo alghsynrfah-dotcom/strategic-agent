@@ -16,10 +16,12 @@ class AgentState(TypedDict, total=False):
     assessment: dict
     questions_asked: int
     next_tool: str                # الأداة اللي اختارها الـ agent
-    decision: Literal["ask", "draft", "revise", "finalize"]
+    decision: Literal["ask", "draft", "finalize", "plan", "risks"]
 
     # المخرجات
     statement: str
     statement_status: Literal["none", "draft", "confirmed", "unconfirmed"]
     assumptions: List[str]
+    plan: str
+    risks: str
     response: str

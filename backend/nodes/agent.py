@@ -1,16 +1,16 @@
 from backend import events
 from backend.agent.llm import ask_json
 from backend.events import Kind
-from backend.graph.router import MAX_QUESTIONS
 from backend.nodes.helpers import join_list, last_user_message
 from backend.prompts.prompts import AGENT_PROMPT
+
+MAX_QUESTIONS = 3
 
 # الأدوات اللي الـ agent بيختار منها (كل أداة = node)
 TOOLS = {
     "ask_clarification": "Ask the user ONE clarifying question about the first missing element.",
     "draft_statement": "Write the 3-part problem statement now; missing items become assumptions.",
-    "revise_statement": "Revise the existing problem statement according to the user's feedback.",
-    "finalize_statement": "Confirm the statement, or continue without confirmation.",
+    "finalize_statement": "Record the user's decision on the statement (confirm, or continue without confirmation).",
 }
 
 
@@ -18,13 +18,11 @@ def allowed_tools(state) -> list:
     """السياسة (بالكود): أي أدوات مسموحة بهالحالة. أول أداة هي الخيار الأأمن."""
     action = state.get("user_action", "message")
 
-    # في بيان موجود
-    if state.get("statement"):
-        if action in ("confirm", "proceed"):
-            return ["finalize_statement"]
-        return ["revise_statement"]
+    # المستخدم ضغط تأكيد أو متابعة على بيان موجود
+    if state.get("statement") and action in ("confirm", "proceed"):
+        return ["finalize_statement"]
 
-    # ما في بيان لسا
+    # أي شي تاني (رسالة، تعديل): نقرر حسب نتيجة التقييم
     a = state.get("assessment") or {}
     ready = a.get("ready_to_draft") or not a.get("critical_missing", True)
     asked = state.get("questions_asked", 0)

@@ -43,7 +43,7 @@ def ask_json(prompt: str) -> dict:
     return json.loads(match.group(0))
 
 
-def stream_text(prompt: str) -> str:
+def stream_text(prompt: str, section: str = "") -> str:
     """Stream the model reply token by token to the UI. Returns full text."""
     full_text = ""
 
@@ -51,6 +51,6 @@ def stream_text(prompt: str) -> str:
         piece = chunk.content
         if isinstance(piece, str) and piece:
             full_text += piece
-            events.token(piece)
+            events.token(piece, section)
 
     return full_text.strip()
