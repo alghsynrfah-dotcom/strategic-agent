@@ -91,7 +91,7 @@ def chat_stream(request: ChatRequest):
         raise HTTPException(status_code=404, detail="Project not found.")
 
     text = request.message.strip()
-    if request.user_action in ("message", "edit") and not text:
+    if request.user_action in "message" and not text:
         raise HTTPException(status_code=422, detail="Message cannot be empty.")
 
     config = {

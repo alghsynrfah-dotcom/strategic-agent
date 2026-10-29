@@ -1,657 +1,642 @@
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
-import CvUpload from "./CvUpload";
-import Notebook, { SaveButton } from "./Notebook";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
-const REQUEST_TIMEOUT_MS = 300_000;
 
-// نفس الحدود الموجودة بالـ backend
-const MAX_CV = 3500;
-const MAX_JOB = 2500;
-const MAX_QUESTION = 1000;
+type Domain = "financial" | "economic";
+type UserAction = "message" | "edit" | "confirm" | "proceed";
 
-type TaskType = "match" | "interview" | "advice";
-
-interface CareerResponse {
-  thread_id: string;
-  task_type: string;
-  workflow_status: string;
-  final_response: string;
-  tools_used: string[];
-  agent_steps: number;
-  history_count: number;
-  error: string;
-  execution_time: number;
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
-interface ProgressStep {
-  id: number;
-  label: string;
-  status: "running" | "done" | "error";
-  tool?: string;
+interface Project {
+  project_id: string;
+  domain: Domain;
+  statement?: string;
+  statement_status?: string;
+  plan?: string;
+  risks?: string;
 }
 
-interface ProgressEvent {
-  kind: string;
-  message?: string;
-  tool?: string;
-  step?: number;
-}
-
-const TASKS: { id: TaskType; title: string; description: string }[] = [
-  {
-    id: "match",
-    title: "CV ↔ Job Match",
-    description: "Compare your CV with a job posting",
-  },
-  {
-    id: "interview",
-    title: "Interview Prep",
-    description: "Get questions and tips for a job",
-  },
-  {
-    id: "advice",
-    title: "Career Advice",
-    description: "Ask a career question or save a note",
-  },
-];
-
-const TOOL_LABELS: Record<string, string> = {
-  parse_cv: "Parse CV",
-  match_job: "Match Job",
-  search_tips: "Search Tips (RAG)",
-  generate_interview_questions: "Interview Questions",
-  save_notes: "Save Notes",
-};
-
-function formatStatus(status?: string): string {
-  if (!status) return "Unknown";
-
-  const labels: Record<string, string> = {
-    completed: "Completed",
-    completed_with_warnings: "Completed with Warnings",
-    failed: "Failed",
-    backend_failed: "Backend Failed",
-    input_invalid: "Invalid Input",
-  };
-
-  return labels[status] ?? status.replace(/_/g, " ");
-}
-
-// يحوّل نص الـ Markdown البسيط (## عناوين و - نقاط) لعناصر HTML
-function renderResponse(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let listItems: string[] = [];
-
-  const flushList = (key: string) => {
-    if (listItems.length > 0) {
-      nodes.push(
-        <ul key={key}>
-          {listItems.map((item, i) => (
-            <li key={i}>{item}</li>
-          ))}
-        </ul>
-      );
-      listItems = [];
-    }
-  };
-
-  text.split("\n").forEach((rawLine, index) => {
-    const line = rawLine.trim();
-
-    if (!line) {
-      flushList(`ul-${index}`);
-      return;
-    }
-
-    if (line.startsWith("## ")) {
-      flushList(`ul-${index}`);
-      nodes.push(<h3 key={`h-${index}`}>{line.slice(3)}</h3>);
-      return;
-    }
-
-    if (line === "---") {
-      flushList(`ul-${index}`);
-      nodes.push(<hr key={`hr-${index}`} />);
-      return;
-    }
-
-    if (line.startsWith("- ")) {
-      listItems.push(line.slice(2));
-      return;
-    }
-
-    if (/^\d+\.\s/.test(line)) {
-      listItems.push(line.replace(/^\d+\.\s+/, ""));
-      return;
-    }
-
-    flushList(`ul-${index}`);
-    nodes.push(<p key={`p-${index}`}>{line}</p>);
-  });
-
-  flushList("ul-end");
-  return nodes;
-}
-
-interface FieldProps {
-  label: string;
-  value: string;
-  max: number;
-  placeholder: string;
-  disabled: boolean;
-  onChange: (value: string) => void;
-}
-
-function Field({
-  label,
-  value,
-  max,
-  placeholder,
-  disabled,
-  onChange,
-}: FieldProps) {
-  return (
-    <div className="field">
-      <div className="field-header">
-        <label>{label}</label>
-        <span className={`char-count ${value.length > max ? "over" : ""}`}>
-          {value.length}/{max}
-          {value.length > max ? " - over the limit" : ""}
-        </span>
-      </div>
-      <textarea
-        dir="auto"
-        rows={6}
-        value={value}
-        placeholder={placeholder}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </div>
-  );
+interface Result {
+  response?: string;
+  statement?: string;
+  statement_status?: string;
+  assumptions?: string[];
+  plan?: string;
+  risks?: string;
+  execution_time?: number;
 }
 
 function App() {
-  const [task, setTask] = useState<TaskType>("match");
-  const [cv, setCv] = useState("");
-  const [job, setJob] = useState("");
-  const [question, setQuestion] = useState("");
-
-  const [threadId, setThreadId] = useState<string | null>(null);
-  const [result, setResult] = useState<CareerResponse | null>(null);
-  const [steps, setSteps] = useState<ProgressStep[]>([]);
-  const [streamText, setStreamText] = useState("");
+  const [domain, setDomain] = useState<Domain>("financial");
+  const [project, setProject] = useState<Project | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [notebookVersion, setNotebookVersion] = useState(0);
-  const [apiStatus, setApiStatus] = useState("Checking API...");
+  const [progress, setProgress] = useState<string[]>([]);
+  const [result, setResult] = useState<Result | null>(null);
+  const [backendOnline, setBackendOnline] = useState(false);
+
+  // Live text received while the backend generates its response.
+  const [streamStatement, setStreamStatement] = useState("");
+  const [streamPlan, setStreamPlan] = useState("");
+  const [streamRisks, setStreamRisks] = useState("");
+  const streamStageRef = useRef("");
+
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/health`)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Backend is not healthy");
-        }
-        setApiStatus("Backend connected");
+      .then((r) => {
+        if (!r.ok) throw new Error("Backend offline");
+        setBackendOnline(true);
       })
-      .catch(() => {
-        setApiStatus("Backend unavailable");
-      });
+      .catch(() => setBackendOnline(false));
   }, []);
 
-  // عدّاد الثواني أثناء الانتظار
   useEffect(() => {
-    if (!loading) return;
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, progress, streamStatement, streamPlan, streamRisks]);
 
-    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, [loading]);
-
-  // خطوة جديدة: الخطوات اللي كانت "جارية" بتصير "منتهية"
-  const addStep = (
-    label: string,
-    status: "running" | "error" = "running",
-    tool?: string
-  ) => {
-    setSteps((prev) => [
-      ...prev.map((s) =>
-        s.status === "running" ? { ...s, status: "done" as const } : s
-      ),
-      { id: prev.length, label, status, tool },
-    ]);
-  };
-
-  const markToolDone = (tool?: string) => {
-    setSteps((prev) =>
-      prev.map((s) =>
-        s.tool === tool && s.status === "running"
-          ? { ...s, status: "done" as const }
-          : s
-      )
-    );
-  };
-
-  const finishAllSteps = () => {
-    setSteps((prev) =>
-      prev.map((s) =>
-        s.status === "running" ? { ...s, status: "done" as const } : s
-      )
-    );
-  };
-
-  const handleProgress = (event: ProgressEvent) => {
-    if (event.kind === "tool_done") {
-      markToolDone(event.tool);
-      return;
-    }
-
-    if (event.kind === "tool") {
-      const name = event.tool ? TOOL_LABELS[event.tool] ?? event.tool : "tool";
-      addStep(`Running tool: ${name}`, "running", event.tool);
-      return;
-    }
-
-    if (event.kind === "failed") {
-      addStep(event.message ?? "Failed", "error");
-      return;
-    }
-
-    if (event.message) {
-      addStep(event.message);
-    }
-  };
-
-  const submit = async () => {
-    setError("");
-    setResult(null);
-    setSteps([]);
-    setStreamText("");
-    setElapsed(0);
+  async function createProject() {
     setLoading(true);
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    let finalData: CareerResponse | null = null;
-
-    const handleBlock = (block: string) => {
-      let eventName = "message";
-      let dataText = "";
-
-      for (const line of block.split("\n")) {
-        if (line.startsWith("event:")) {
-          eventName = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          dataText += line.slice(5).trim();
-        }
-      }
-
-      if (!dataText) return;
-
-      try {
-        const data = JSON.parse(dataText);
-
-        if (eventName === "progress") {
-          handleProgress(data as ProgressEvent);
-        } else if (eventName === "token") {
-          setStreamText((prev) => prev + (data.text ?? ""));
-        } else if (eventName === "done") {
-          finalData = data as CareerResponse;
-        }
-      } catch {
-        // تجاهل أي حدث غير مفهوم
-      }
-    };
+    setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/career/stream`, {
+      const response = await fetch(`${API_BASE_URL}/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
+        body: JSON.stringify({ domain }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Could not create project.");
+      }
+
+      setProject({
+        project_id: data.project_id,
+        domain: data.domain,
+      });
+
+      setMessages([]);
+      setProgress([]);
+      setResult(null);
+      setStreamStatement("");
+      setStreamPlan("");
+      setStreamRisks("");
+      streamStageRef.current = "";
+      setDraft("");
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not connect to the backend."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendAction(action: UserAction, text?: string) {
+    if (!project || loading) return;
+
+    const message = (text ?? draft).trim();
+
+    if (action === "message" && !message) {
+      setError("Please enter a message first.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setProgress([]);
+    setStreamStatement("");
+    setStreamPlan("");
+    setStreamRisks("");
+    streamStageRef.current = "";
+
+    // لا نحتفظ بالنتائج القديمة أثناء إعادة التفكير.
+    // نحتفظ بالمحادثة السابقة حتى يستطيع الوكيل الاستفادة منها.
+    if (action === "edit") {
+      setResult({
+        statement: "",
+        statement_status: "none",
+        assumptions: [],
+        plan: "",
+        risks: "",
+        response: "",
+      });
+
+      setProject((old) =>
+        old
+          ? {
+              ...old,
+              statement: "",
+              statement_status: "none",
+              plan: "",
+              risks: "",
+            }
+          : old
+      );
+    } else {
+      setResult(null);
+    }
+
+    if (action === "message" && message) {
+      setMessages((old) => [
+        ...old,
+        { role: "user", content: message },
+      ]);
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          task_type: task,
-          cv_text: cv,
-          job_text: job,
-          user_question: question,
-          thread_id: threadId,
+          project_id: project.project_id,
+          message,
+          user_action: action,
         }),
       });
 
       if (!response.ok) {
-        let message = "Invalid request. Check the field lengths.";
-
-        try {
-          const data = await response.json();
-          if (typeof data.detail === "string") {
-            message = data.detail;
-          }
-        } catch {
-          // نبقي الرسالة الافتراضية
-        }
-
-        throw new Error(message);
+        const body = await response.json().catch(() => ({}));
+        throw new Error(
+          body.detail || body.error || `Request failed: ${response.status}`
+        );
       }
 
       if (!response.body) {
-        throw new Error("The server did not send a stream.");
+        throw new Error("The browser does not support response streaming.");
       }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let finalResult: Result | null = null;
 
       while (true) {
-        const { done, value } = await reader.read();
+        const { value, done } = await reader.read();
 
-        if (done) break;
+        buffer += decoder.decode(value || new Uint8Array(), {
+          stream: !done,
+        });
 
-        buffer += decoder.decode(value, { stream: true });
-
-        const blocks = buffer.split("\n\n");
-        buffer = blocks.pop() ?? "";
+        const blocks = buffer.split(/\r?\n\r?\n/);
+        buffer = blocks.pop() || "";
 
         for (const block of blocks) {
-          handleBlock(block);
+          let eventName = "";
+          const dataLines: string[] = [];
+
+          for (const line of block.split(/\r?\n/)) {
+            if (line.startsWith("event:")) {
+              eventName = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataLines.push(line.slice(5).trim());
+            }
+          }
+
+          if (!dataLines.length) continue;
+
+          let payload: Record<string, unknown>;
+
+          try {
+            payload = JSON.parse(dataLines.join("\n"));
+          } catch {
+            continue;
+          }
+
+          if (eventName === "progress") {
+            const progressMessage = String(
+              payload.message || payload.text || payload.kind || ""
+            );
+            const eventKind = String(payload.kind || "").toLowerCase();
+
+            if (progressMessage) {
+              setProgress((old) => [...old, progressMessage]);
+            }
+
+            // Identify which section the backend is currently generating.
+            if (
+              eventKind === "draft" ||
+              eventKind.includes("draft_statement")
+            ) {
+              streamStageRef.current = "statement";
+            } else if (
+              eventKind === "statement_replace" ||
+              eventKind.includes("statement_replace")
+            ) {
+              streamStageRef.current = "statement";
+              const replacementText = String(
+                payload.text || payload.statement || payload.message || ""
+              );
+              if (replacementText) {
+                setStreamStatement(replacementText);
+              }
+            }
+          }
+
+          if (eventName === "token") {
+            const tokenText = String(payload.text || "");
+            const section = String(payload.section || "").toLowerCase();
+
+            if (tokenText) {
+              if (section === "plan") {
+                setStreamPlan((old) => old + tokenText);
+              } else if (section === "risks") {
+                setStreamRisks((old) => old + tokenText);
+              } else if (
+                section === "statement" ||
+                streamStageRef.current === "statement"
+              ) {
+                setStreamStatement((old) => old + tokenText);
+              }
+            }
+          }
+
+          if (eventName === "done") {
+            finalResult = payload as Result;
+          }
+
+          if (eventName === "error") {
+            throw new Error(
+              String(payload.error || "The agent encountered an error.")
+            );
+          }
         }
+
+        if (done) break;
       }
 
-      if (buffer.trim()) {
-        handleBlock(buffer);
+      if (!finalResult) {
+        throw new Error("The workflow ended without a final result.");
       }
 
-      const finished = finalData as CareerResponse | null;
+      setResult(finalResult);
 
-      if (!finished) {
-        throw new Error("The connection closed before the result arrived.");
+      if (finalResult.response) {
+        setMessages((old) => [
+          ...old,
+          {
+            role: "assistant",
+            content: finalResult.response!,
+          },
+        ]);
       }
 
-      finishAllSteps();
-      setResult(finished);
-      setThreadId(finished.thread_id ?? threadId);
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        setError("The request took too long. Please try again.");
-      } else {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An unexpected error occurred."
-        );
-      }
+      setProject((old) =>
+        old
+          ? {
+              ...old,
+              statement: finalResult?.statement ?? old.statement,
+              statement_status:
+                finalResult?.statement_status ?? old.statement_status,
+              plan: finalResult?.plan ?? old.plan,
+              risks: finalResult?.risks ?? old.risks,
+            }
+          : old
+      );
+
+      setDraft("");
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Something went wrong."
+      );
     } finally {
-      clearTimeout(timer);
-      setStreamText("");
       setLoading(false);
     }
-  };
+  }
 
-  const newSession = () => {
-    setThreadId(null);
-    setResult(null);
-    setSteps([]);
-    setCv("");
-    setJob("");
-    setQuestion("");
-    setError("");
-  };
+  const statement =
+    streamStatement || result?.statement || project?.statement || "";
+  const status =
+    result?.statement_status ?? project?.statement_status ?? "none";
+  const plan = streamPlan || result?.plan || project?.plan || "";
+  const risks = streamRisks || result?.risks || project?.risks || "";
+  const assumptions = result?.assumptions ?? [];
 
-  const copyResponse = async () => {
-    try {
-      await navigator.clipboard.writeText(result?.final_response ?? "");
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Could not copy the text.");
-    }
-  };
+  function statusText(value: string) {
+    const labels: Record<string, string> = {
+      none: "Not drafted yet",
+      draft: "Awaiting your decision",
+      confirmed: "Confirmed",
+      unconfirmed: "Continued without confirmation",
+    };
 
-  const failed =
-    !!result &&
-    (["failed", "backend_failed", "input_invalid"].includes(
-      result.workflow_status
-    ) ||
-      !!result.error);
+    return labels[value] || value.replaceAll("_", " ");
+  }
 
   return (
-    <div className="app">
-      <header className="header">
-        <div>
-          <h1>Career Assistant</h1>
-          <p>CV analysis, job matching and interview preparation</p>
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark">S</span>
+          <div>
+            <strong>Strategic Agent</strong>
+            <small>Problem framing & decision support</small>
+          </div>
         </div>
 
-        <div
-          className={`api-status ${
-            apiStatus === "Backend connected" ? "connected" : "offline"
-          }`}
-        >
-          <span className="status-dot" />
-          {apiStatus}
+        <div className="connection">
+          <span
+            className={`connection-dot ${
+              backendOnline ? "online" : "offline"
+            }`}
+          />
+          {backendOnline ? "Backend connected" : "Backend offline"}
         </div>
       </header>
 
-      <main className="container">
-        <section className="card input-card">
-          <h2>What do you need?</h2>
+      <main className="layout">
+        <aside className="sidebar">
+          <p className="eyebrow">WORKSPACE</p>
+          <h2>New analysis</h2>
 
-          <div className="task-tabs">
-            {TASKS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`task-tab ${task === item.id ? "active" : ""}`}
-                onClick={() => {
-                  setTask(item.id);
-                  setError("");
-                }}
-                disabled={loading}
-              >
-                <strong>{item.title}</strong>
-                <span>{item.description}</span>
-              </button>
-            ))}
-          </div>
+          <p className="muted">
+            Choose the domain for your problem.
+          </p>
 
-          {(task === "match" || task === "interview") && (
-            <Field
-              label={task === "interview" ? "Your CV (optional)" : "Your CV"}
-              value={cv}
-              max={MAX_CV}
-              placeholder="Paste your CV text here..."
-              disabled={loading}
-              onChange={setCv}
-            />
-          )}
-
-          {(task === "match" || task === "interview") && (
-            <CvUpload disabled={loading} onExtracted={setCv} />
-          )}
-
-          {(task === "match" || task === "interview") && (
-            <Field
-              label="Job Posting"
-              value={job}
-              max={MAX_JOB}
-              placeholder="Paste the job posting here..."
-              disabled={loading}
-              onChange={setJob}
-            />
-          )}
-
-          {task === "advice" && (
-            <Field
-              label="Your Question"
-              value={question}
-              max={MAX_QUESTION}
-              placeholder="Example: How should I answer 'tell me about yourself'?"
-              disabled={loading}
-              onChange={setQuestion}
-            />
-          )}
-
-          <div className="input-row">
+          <div className="domain-options">
             <button
-              className="primary-button"
-              onClick={() => void submit()}
+              className={`domain-option ${
+                domain === "financial" ? "selected" : ""
+              }`}
+              onClick={() => setDomain("financial")}
               disabled={loading}
             >
-              {loading ? "Working..." : "Run"}
+              <span className="domain-icon">$</span>
+              <span>
+                <strong>Financial</strong>
+                <small>Revenue, costs, budgets</small>
+              </span>
             </button>
 
-            {threadId && (
-              <button
-                className="secondary-button"
-                onClick={newSession}
-                disabled={loading}
-              >
-                New Session
-              </button>
-            )}
+            <button
+              className={`domain-option ${
+                domain === "economic" ? "selected" : ""
+              }`}
+              onClick={() => setDomain("economic")}
+              disabled={loading}
+            >
+              <span className="domain-icon">↗</span>
+              <span>
+                <strong>Economic</strong>
+                <small>Markets, demand, growth</small>
+              </span>
+            </button>
           </div>
 
-          {threadId && (
-            <p className="section-description">
-              Session active
-              {result ? ` · ${result.history_count} request(s) in memory` : ""}
-            </p>
-          )}
+          <button
+            className="primary-button full"
+            onClick={() => void createProject()}
+            disabled={loading}
+          >
+            {loading ? "Creating..." : "+ New project"}
+          </button>
 
-          {error && (
-            <div className="error-box" role="alert">
-              <strong>Error</strong>
-              <span>{error}</span>
+          {project && (
+            <div className="active-project">
+              <p className="eyebrow">CURRENT PROJECT</p>
+              <strong>{project.domain} analysis</strong>
+              <small>ID: {project.project_id.slice(0, 8)}...</small>
             </div>
           )}
-        </section>
 
-        {(loading || steps.length > 0) && (
-          <section className="card progress-card">
-            <div className="section-header">
-              <h2>Workflow Progress</h2>
-              {loading && (
-                <span className="elapsed">
-                  <span className="spinner small" /> {elapsed}s
-                </span>
-              )}
-            </div>
+          <div className="sidebar-note">
+            The agent clarifies the problem first. After you review
+            the statement, it can continue to planning and risk analysis.
+          </div>
+        </aside>
 
-            {loading && (
-              <p className="section-description">
-                The assistant calls the model several times, so it can
-                take one to three minutes on a slow connection. Each
-                step appears below as it happens.
+        <section className="main-panel">
+          {!project ? (
+            <div className="welcome-card">
+              <div className="welcome-symbol">✦</div>
+              <p className="eyebrow">STRATEGIC INTELLIGENT AGENT</p>
+              <h1>Turn a complex problem into a clear next step.</h1>
+              <p className="muted welcome-copy">
+                Describe your situation, clarify what is missing,
+                and build a structured problem statement before planning.
               </p>
-            )}
-
-            <ol className="progress-list">
-              {steps.map((step) => (
-                <li
-                  key={step.id}
-                  className={`progress-step ${step.status}`}
-                >
-                  <span className="step-icon">
-                    {step.status === "running" && (
-                      <span className="spinner small" />
-                    )}
-                    {step.status === "done" && "✓"}
-                    {step.status === "error" && "✕"}
-                  </span>
-                  <span>{step.label}</span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
-
-        {loading && streamText && (
-          <section className="card">
-            <div className="section-header">
-              <h2>Result (writing...)</h2>
+              <button
+                className="primary-button"
+                onClick={() => void createProject()}
+                disabled={loading}
+              >
+                {loading ? "Creating project..." : "Start a project →"}
+              </button>
             </div>
-
-            <div className="response-body" dir="auto">
-              {renderResponse(streamText)}
-              <span className="cursor" />
-            </div>
-          </section>
-        )}
-
-        {result && (
-          <>
-            <section className="status-grid">
-              <div className="card status-card">
-                <span className="label">Status</span>
-                <strong>{formatStatus(result.workflow_status)}</strong>
+          ) : (
+            <>
+              <div className="page-heading">
+                <div>
+                  <p className="eyebrow">
+                    {project.domain.toUpperCase()} WORKSPACE
+                  </p>
+                  <h1>Problem analysis</h1>
+                  <p className="muted">
+                    Explain the situation. The agent will ask about
+                    missing information when needed.
+                  </p>
+                </div>
+                <span className="status-pill">{statusText(status)}</span>
               </div>
 
-              <div className="card status-card">
-                <span className="label">Execution Time</span>
-                <strong>{result.execution_time}s</strong>
-              </div>
+              <section className="panel">
+                <div className="section-title">
+                  <h2>01 — Conversation</h2>
+                  <span>{messages.length} messages</span>
+                </div>
 
-              <div className="card status-card">
-                <span className="label">Agent Steps</span>
-                <strong>{result.agent_steps}</strong>
-              </div>
+                {messages.length === 0 && (
+                  <div className="intro-message">
+                    <div className="agent-avatar">S</div>
+                    <div className="message-bubble assistant-bubble">
+                      <strong>Let’s understand the problem first.</strong>
+                      <p>
+                        Tell me what is happening, the context, and
+                        the impact you are seeing. It is okay if some
+                        details are not known yet.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
-              <div className="card status-card">
-                <span className="label">Session Requests</span>
-                <strong>{result.history_count}</strong>
-              </div>
-            </section>
-
-            {result.tools_used.length > 0 && (
-              <section className="card">
-                <h2>Tools Used</h2>
-                <div className="tool-tags">
-                  {result.tools_used.map((name) => (
-                    <span key={name}>{TOOL_LABELS[name] ?? name}</span>
+                <div className="message-list">
+                  {messages.map((message, index) => (
+                    <div
+                      className={`message-row ${message.role}`}
+                      key={`${index}-${message.role}`}
+                    >
+                      {message.role === "assistant" && (
+                        <div className="agent-avatar">S</div>
+                      )}
+                      <div
+                        className={`message-bubble ${
+                          message.role === "assistant"
+                            ? "assistant-bubble"
+                            : "user-bubble"
+                        }`}
+                      >
+                        <span className="message-author">
+                          {message.role === "assistant"
+                            ? "Strategic Agent"
+                            : "You"}
+                        </span>
+                        <p dir="auto">{message.content}</p>
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </section>
-            )}
 
-            {failed ? (
-              <section className="card error-card">
-                <h2>Request Failed</h2>
-                <div className="error-box" dir="auto">
-                  {result.error || formatStatus(result.workflow_status)}
-                </div>
-              </section>
-            ) : (
-              <section className="card">
-                <div className="section-header">
-                  <h2>Result</h2>
-                  <button
-                    className="secondary-button"
-                    onClick={() => void copyResponse()}
-                  >
-                    {copied ? "Copied ✓" : "Copy"}
-                  </button>
-                </div>
-
-                <div className="response-body" dir="auto">
-                  {renderResponse(result.final_response)}
-                </div>
-
-                {result.task_type === "match" && (
-                  <SaveButton
-                    finalResponse={result.final_response}
-                    jobText={job}
-                    onSaved={() => setNotebookVersion((v) => v + 1)}
-                  />
+                {loading && (
+                  <div className="working-box">
+                    <span className="spinner" />
+                    <div>
+                      <strong>Agent is working...</strong>
+                      <p>
+                        {progress[progress.length - 1] ||
+                          "Processing your request"}
+                      </p>
+                    </div>
+                  </div>
                 )}
+
+                <div ref={bottomRef} />
+
+                <form
+                  className="composer"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void sendAction("message");
+                  }}
+                >
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder="Describe the problem or answer the agent..."
+                    rows={3}
+                    disabled={loading}
+                  />
+                  <div className="composer-footer">
+                    <span>Describe the problem in your own words.</span>
+                    <button
+                      className="primary-button"
+                      type="submit"
+                      disabled={loading || !draft.trim()}
+                    >
+                      {loading ? "Working..." : "Send message ↑"}
+                    </button>
+                  </div>
+                </form>
               </section>
-            )}
-          </>
-        )}
-        <Notebook refreshKey={notebookVersion} />
+
+              {error && (
+                <div className="error-banner">
+                  <strong>Something went wrong</strong>
+                  <p>{error}</p>
+                </div>
+              )}
+
+              {progress.length > 0 && (
+                <section className="panel">
+                  <div className="section-title">
+                    <h2>Workflow activity</h2>
+                    <span>{loading ? "In progress" : "Latest run"}</span>
+                  </div>
+                  <ol className="progress-list">
+                    {progress.map((item, index) => (
+                      <li key={`${index}-${item}`}>{item}</li>
+                    ))}
+                  </ol>
+                </section>
+              )}
+
+              {statement && (
+                <section className="panel">
+                  <div className="section-title">
+                    <h2>02 — Problem statement</h2>
+                    <span className="status-pill">
+                      {statusText(status)}
+                    </span>
+                  </div>
+
+                  <div className="statement-box" dir="auto">
+                    {statement}
+                  </div>
+
+                  {assumptions.length > 0 && (
+                    <div className="assumptions-box">
+                      <strong>Assumptions to validate</strong>
+                      <ul>
+                        {assumptions.map((item, index) => (
+                          <li key={`${index}-${item}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {!loading && (
+                    <div className="decision-actions">
+                      <button
+                        className="primary-button"
+                        onClick={() => void sendAction("confirm")}
+                      >
+                        Confirm statement
+                      </button>
+
+                      <button
+                        className="link-button"
+                        onClick={() => void sendAction("edit", "")}
+                      >
+                        ✎ Edit problem & rethink
+                      </button>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {(plan || risks) && (
+                <div className="results-grid">
+                  {plan && (
+                    <section className="panel">
+                      <div className="section-title">
+                        <h2>03 — Solution plan</h2>
+                      </div>
+                      <div className="result-text" dir="auto">
+                        {plan}
+                      </div>
+                    </section>
+                  )}
+
+                  {risks && (
+                    <section className="panel">
+                      <div className="section-title">
+                        <h2>04 — Risks of the solution plan</h2>
+                      </div>
+                      <div className="result-text" dir="auto">
+                        {risks}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </section>
       </main>
+
+      <footer className="footer">
+        Strategic Intelligent Agent
+        <span>Problem clarity · Planning · Risk analysis</span>
+      </footer>
     </div>
   );
 }

@@ -106,7 +106,6 @@ Clarifying questions already asked: {questions_asked}
 CHOOSING RULES:
 - Choose draft_statement ONLY if the user clearly asks to continue, finish, or write the statement now (for example "just continue", "write it now", "كمل", "اكتب البيان").
 - Saying "I do not know", "not sure", or "no idea" is NOT a request to continue. Choose ask_clarification.
-- In every other case choose ask_clarification.
 
 Return ONLY a JSON object, no extra text:
 {{"tool": "<tool name>", "reason": "<one short sentence>"}}
