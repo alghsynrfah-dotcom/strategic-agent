@@ -60,6 +60,7 @@ def build_result(state: dict, project_id: str, execution_time: float) -> dict:
         "risks": state.get("risks", ""),
         "questions_asked": state.get("questions_asked", 0),
         "execution_time": round(execution_time, 3),
+        "solution_comparison": state.get("solution_comparison", ""),
     }
 
 
@@ -91,7 +92,7 @@ def chat_stream(request: ChatRequest):
         raise HTTPException(status_code=404, detail="Project not found.")
 
     text = request.message.strip()
-    if request.user_action in "message" and not text:
+    if request.user_action == "message" and not text:
         raise HTTPException(status_code=422, detail="Message cannot be empty.")
 
     config = {

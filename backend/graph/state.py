@@ -1,27 +1,45 @@
+
 import operator
 from typing import Annotated, List, Literal, TypedDict
 
 
 class AgentState(TypedDict, total=False):
-    # من الباك
+    # Project context
     project_id: str
     domain: Literal["financial", "economic"]
-    messages: Annotated[List[dict], operator.add]   # المحادثة بتتراكم
+    messages: Annotated[List[dict], operator.add]
     memory: str
     knowledge: str
     user_action: Literal["message", "edit", "confirm", "proceed"]
 
-    # عقل الوكيل
+    # Agent decisions
     initial_problem: str
     assessment: dict
     questions_asked: int
-    next_tool: str                # الأداة اللي اختارها الـ agent
-    decision: Literal["ask", "draft", "finalize", "plan", "risks"]
+    next_tool: str
+    decision: Literal[
+        "ask",
+        "draft",
+        "finalize",
+        "plan",
+        "risks",
+        "compare",
+    ]
 
-    # المخرجات
+    # Problem statement
     statement: str
-    statement_status: Literal["none", "draft", "confirmed", "unconfirmed"]
+    previous_statement: str
+    edit_feedback: str
+    statement_status: Literal[
+        "none",
+        "draft",
+        "confirmed",
+        "unconfirmed",
+    ]
     assumptions: List[str]
+
+    # Analysis outputs
     plan: str
     risks: str
+    solution_comparison: str
     response: str

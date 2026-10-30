@@ -1,8 +1,9 @@
+
 from backend import events
 from backend.agent.llm import ask_json
 from backend.events import Kind
 from backend.graph.schemas import Assessment
-from backend.nodes.helpers import format_conversation
+from backend.nodes.helpers import format_conversation, last_user_message
 from backend.prompts.prompts import ASSESS_PROMPT
 
 
@@ -19,8 +20,10 @@ def _has(raw: dict, name: str) -> bool:
 
 
 def assess_problem(state):
+    action = state.get("user_action", "message")
+
     if (
-        state.get("user_action") in ("confirm", "proceed")
+        action in ("confirm", "proceed")
         and state.get("statement")
     ):
         events.progress(
@@ -28,6 +31,20 @@ def assess_problem(state):
             "Nothing new to assess, keeping the previous assessment",
         )
         return {"assessment": state.get("assessment") or {}}
+
+    # Preserve the old statement before clearing generated results.
+    previous_statement = (
+        state.get("statement")
+        or state.get("previous_statement")
+        or ""
+    )
+
+    # Capture the user's edit instructions once, so they survive
+    # any clarifying-question turns before drafting.
+    edit_feedback = state.get("edit_feedback", "")
+
+    if action == "edit":
+        edit_feedback = last_user_message(state.get("messages", []))
 
     events.progress(Kind.THINKING, "Analyzing the problem")
 
@@ -99,15 +116,16 @@ def assess_problem(state):
         "assessment": assessment.model_dump(),
     }
 
-    # When the user edits the problem, clear the old results
-    # after reassessing the problem from the beginning.
-    if state.get("user_action") == "edit":
+    if action == "edit":
         result.update({
+            "previous_statement": previous_statement,
+            "edit_feedback": edit_feedback,
             "statement": "",
             "statement_status": "none",
             "assumptions": [],
             "plan": "",
             "risks": "",
+            "solution_comparison": "",
             "response": "",
             "decision": "",
             "next_tool": "",

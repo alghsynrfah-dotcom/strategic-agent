@@ -14,10 +14,12 @@ class Kind:
     DRAFT = "draft"
     PLAN = "plan"
     RISKS = "risks"
+    COMPARISON = "comparison"
     GUARD = "guard"
     AWAITING = "awaiting_confirmation"
     TOKEN = "token"
     STATEMENT_REPLACE = "statement_replace"
+    
 
 
 def _send(event: dict) -> None:

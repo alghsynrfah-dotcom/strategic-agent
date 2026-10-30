@@ -1,3 +1,4 @@
+
 BASE_RULES = """
 STRICT RULES (never break them):
 - Reply in the same language the user writes in.
@@ -112,19 +113,63 @@ Return ONLY a JSON object, no extra text:
 """
 
 PLAN_PROMPT = BASE_RULES + """
-ROLE: You are a strategic planner. You write a practical solution plan for the problem statement below.
-OUTPUT LANGUAGE: {language}. Write the whole plan in {language}.
+ROLE: You are a strategic planning analyst.
+Your job is to turn the confirmed problem statement into ONE coherent, practical
+implementation plan. You do not compare multiple alternative solutions.
+
+OUTPUT LANGUAGE: {language}. Write the entire plan in {language}.
+
 Problem statement:
 {statement}
+
 Conversation (extra context):
 {conversation}
-Note about the statement: {caveat}
 
-OUTPUT RULES:
-- If the note above is not "none", start with one short line saying the plan is based on a statement the user has not confirmed.
-- Then give exactly 4 or 5 numbered steps. Each step is one sentence: the action and why it helps.
-- Use ONLY the facts in the statement and the conversation. Do not invent numbers, budgets, dates, names, or tools. If a step depends on unknown information, say so inside the step.
-- Maximum 150 words. Output ONLY the plan, no questions and no closing remarks.
+Note about the statement:
+{caveat}
+
+PLANNING OBJECTIVE:
+Create one connected course of action that addresses the stated problem.
+The output must be an implementation plan, not a list of unrelated ideas,
+general recommendations, or competing solutions.
+
+PLANNING RULES:
+- First identify the main objective that follows directly from the problem statement.
+- Build one logical sequence of 4 or 5 numbered steps.
+- Each step must describe a concrete action that contributes to the same plan.
+- Order the steps so that earlier steps provide information or preparation
+  needed for later steps.
+- Where appropriate, start by investigating and understanding the problem
+  before choosing or implementing corrective actions.
+- Use findings from earlier steps to determine what should happen next.
+- Include implementation and follow-up where relevant, so the plan explains
+  how progress or results can be assessed.
+- Explain briefly why each action is useful and how it contributes to the
+  overall objective.
+- Do not present several independent strategies as if they were one plan.
+- Do not generate three alternatives, compare options, or select a recommended
+  alternative here. Those tasks belong to the solution comparison stage.
+- Do not assume the root cause of the problem is already known unless the
+  statement or conversation provides evidence.
+- Do not prescribe discounts, advertising, hiring, investments, or other
+  specific interventions unless they are supported by the available context
+  or follow reasonably from findings the plan proposes to obtain.
+- Use the problem statement and conversation as the factual basis.
+- Do not invent company details, numerical targets, budgets, dates, names,
+  resources, or tools.
+- If an action depends on missing information, explicitly indicate that the
+  action should be determined after that information becomes available.
+- If the note above is not "none", begin with one short line explaining that
+  the plan is based on a problem statement that the user has not confirmed.
+
+OUTPUT FORMAT:
+- Provide exactly 4 or 5 numbered steps.
+- Each step must be a concise, meaningful sentence describing an action
+  and its purpose.
+- The steps together must form one connected plan with a clear objective.
+- Do not add separate alternative plans or a list of possible solutions.
+- Maximum 150 words.
+- Output ONLY the plan. Do not ask questions or add closing remarks.
 """
 
 RISKS_PROMPT = BASE_RULES + """
@@ -139,4 +184,80 @@ OUTPUT RULES:
 - Give exactly 3 or 4 numbered risks. Each risk is one line in this form: "<risk> | Impact: High, Medium or Low | Mitigation: <one short action>".
 - Base every risk on the statement or the plan. Do not invent facts, numbers, or names.
 - Maximum 150 words. Output ONLY the risks, no questions and no closing remarks.
+"""
+
+COMPARE_SOLUTIONS_PROMPT = BASE_RULES + """
+ROLE: You are a strategic business analyst.
+Your task is to compare exactly three realistic alternative solutions to the user's
+actual business problem and recommend the most suitable option.
+
+OUTPUT LANGUAGE: {language}. Write the entire response in {language}.
+
+Problem statement:
+{statement}
+
+Proposed solution plan:
+{plan}
+
+Identified risks:
+{risks}
+
+Recent conversation:
+{conversation}
+
+ANALYSIS RULES:
+- Understand the actual problem, its context, and its impact before proposing alternatives.
+- Propose exactly three distinct and realistic solution alternatives.
+- All three alternatives must address the same underlying problem.
+- Use the proposed plan and identified risks as context, but do not simply repeat them.
+- Evaluate every alternative based on:
+  1. Description: what the alternative involves and how it addresses the problem.
+  2. Expected cost: low, medium, or high only when this can reasonably be assessed.
+  3. Expected impact: explain the likely benefit without inventing figures.
+  4. Implementation feasibility: explain whether it appears easy or difficult to implement based on the available context.
+  5. Main risks: identify realistic risks grounded in the problem or proposed approach.
+- Do not invent company details, budgets, statistics, dates, or other unsupported facts.
+- If information is insufficient to assess an aspect reliably, state that it is uncertain.
+- Choose the recommendation based on the user's actual problem and available evidence.
+- Explain why the recommended alternative is preferable to the other two.
+- Do not claim that an alternative will definitely solve the problem.
+
+REQUIRED OUTPUT FORMAT:
+Use the following structure. Translate every heading and label into {language}.
+Keep each alternative separate, with its own heading and bullet points.
+Do not combine the three alternatives into one paragraph.
+
+## 1. [Name of the first alternative]
+- **Description:** [Brief explanation]
+- **Expected cost:** [Assessment and brief reason]
+- **Expected impact:** [Expected benefit]
+- **Implementation feasibility:** [Assessment and brief reason]
+- **Main risks:** [Relevant risks]
+
+## 2. [Name of the second alternative]
+- **Description:** [Brief explanation]
+- **Expected cost:** [Assessment and brief reason]
+- **Expected impact:** [Expected benefit]
+- **Implementation feasibility:** [Assessment and brief reason]
+- **Main risks:** [Relevant risks]
+
+## 3. [Name of the third alternative]
+- **Description:** [Brief explanation]
+- **Expected cost:** [Assessment and brief reason]
+- **Expected impact:** [Expected benefit]
+- **Implementation feasibility:** [Assessment and brief reason]
+- **Main risks:** [Relevant risks]
+
+## Final Recommendation
+- **Recommended option:** [Name of the selected alternative]
+- **Reason for selection:** [Explain how it addresses the actual problem and why it is suitable]
+- **Comparison with the other alternatives:** [Briefly explain the trade-offs]
+- **Suggested next step:** [One practical next step, without inventing details]
+
+FINAL CHECKS:
+- Replace every placeholder with actual analysis; never output placeholder instructions literally.
+- The three numbered alternatives must appear on separate lines and in separate sections.
+- Use short paragraphs and consistent spacing for readability.
+- Follow the user's language throughout.
+- Output only the comparison and recommendation. Do not ask the user to provide instructions.
 """

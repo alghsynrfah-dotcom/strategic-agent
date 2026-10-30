@@ -797,7 +797,9 @@ textarea:focus-visible {
 }
 
 .results-grid .panel {
-  height: 100%;
+  height: auto;
+  min-height: 0;
+  align-self: start;
 }
 
 .result-text {
@@ -1064,4 +1066,74 @@ textarea:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+.comparison-panel {
+  grid-column: 1 / -1;
+}
+
+.comparison-panel .result-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+
+/* Fix page scrolling and prevent result panels from clipping content */
+
+html {
+  min-height: 100%;
+  height: auto;
+  overflow-x: clip;
+  overflow-y: auto;
+}
+
+body {
+  min-height: 100vh;
+  height: auto;
+  overflow: visible;
+}
+
+#root {
+  min-height: 100vh;
+  height: auto;
+  overflow: visible;
+}
+
+.app-shell {
+  min-height: 100vh;
+  height: auto;
+  overflow: visible;
+}
+
+.layout {
+  min-height: 0;
+  overflow: visible;
+}
+
+.main-panel {
+  min-height: 0;
+  overflow: visible;
+}
+
+.results-grid {
+  min-height: 0;
+  align-items: start;
+  overflow: visible;
+}
+
+.results-grid .panel {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.result-text {
+  min-height: 0;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.comparison-panel {
+  min-width: 0;
+  overflow: visible;
 }

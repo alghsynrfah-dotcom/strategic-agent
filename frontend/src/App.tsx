@@ -19,6 +19,7 @@ interface Project {
   statement_status?: string;
   plan?: string;
   risks?: string;
+  solution_comparison?: string;
 }
 
 interface Result {
@@ -28,6 +29,7 @@ interface Result {
   assumptions?: string[];
   plan?: string;
   risks?: string;
+  solution_comparison?: string;
   execution_time?: number;
 }
 
@@ -36,18 +38,19 @@ function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [editingProblem, setEditingProblem] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<string[]>([]);
   const [result, setResult] = useState<Result | null>(null);
   const [backendOnline, setBackendOnline] = useState(false);
 
-  // Live text received while the backend generates its response.
   const [streamStatement, setStreamStatement] = useState("");
   const [streamPlan, setStreamPlan] = useState("");
   const [streamRisks, setStreamRisks] = useState("");
-  const streamStageRef = useRef("");
+  const [streamComparison, setStreamComparison] = useState("");
 
+  const streamStageRef = useRef("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -59,9 +62,7 @@ function App() {
       .catch(() => setBackendOnline(false));
   }, []);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, progress, streamStatement, streamPlan, streamRisks]);
+
 
   async function createProject() {
     setLoading(true);
@@ -91,8 +92,10 @@ function App() {
       setStreamStatement("");
       setStreamPlan("");
       setStreamRisks("");
+      setStreamComparison("");
       streamStageRef.current = "";
       setDraft("");
+      setEditingProblem(false);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Could not connect to the backend."
@@ -118,10 +121,9 @@ function App() {
     setStreamStatement("");
     setStreamPlan("");
     setStreamRisks("");
+    setStreamComparison("");
     streamStageRef.current = "";
 
-    // لا نحتفظ بالنتائج القديمة أثناء إعادة التفكير.
-    // نحتفظ بالمحادثة السابقة حتى يستطيع الوكيل الاستفادة منها.
     if (action === "edit") {
       setResult({
         statement: "",
@@ -129,6 +131,7 @@ function App() {
         assumptions: [],
         plan: "",
         risks: "",
+        solution_comparison: "",
         response: "",
       });
 
@@ -140,6 +143,7 @@ function App() {
               statement_status: "none",
               plan: "",
               risks: "",
+              solution_comparison: "",
             }
           : old
       );
@@ -223,7 +227,6 @@ function App() {
               setProgress((old) => [...old, progressMessage]);
             }
 
-            // Identify which section the backend is currently generating.
             if (
               eventKind === "draft" ||
               eventKind.includes("draft_statement")
@@ -234,9 +237,11 @@ function App() {
               eventKind.includes("statement_replace")
             ) {
               streamStageRef.current = "statement";
+
               const replacementText = String(
                 payload.text || payload.statement || payload.message || ""
               );
+
               if (replacementText) {
                 setStreamStatement(replacementText);
               }
@@ -252,6 +257,8 @@ function App() {
                 setStreamPlan((old) => old + tokenText);
               } else if (section === "risks") {
                 setStreamRisks((old) => old + tokenText);
+              } else if (section === "comparison") {
+                setStreamComparison((old) => old + tokenText);
               } else if (
                 section === "statement" ||
                 streamStageRef.current === "statement"
@@ -300,6 +307,8 @@ function App() {
                 finalResult?.statement_status ?? old.statement_status,
               plan: finalResult?.plan ?? old.plan,
               risks: finalResult?.risks ?? old.risks,
+              solution_comparison:
+                finalResult?.solution_comparison ?? old.solution_comparison,
             }
           : old
       );
@@ -316,10 +325,19 @@ function App() {
 
   const statement =
     streamStatement || result?.statement || project?.statement || "";
+
   const status =
     result?.statement_status ?? project?.statement_status ?? "none";
+
   const plan = streamPlan || result?.plan || project?.plan || "";
   const risks = streamRisks || result?.risks || project?.risks || "";
+
+  const comparison =
+    streamComparison ||
+    result?.solution_comparison ||
+    project?.solution_comparison ||
+    "";
+
   const assumptions = result?.assumptions ?? [];
 
   function statusText(value: string) {
@@ -583,7 +601,7 @@ function App() {
                     </div>
                   )}
 
-                  {!loading && (
+                  {!loading && !editingProblem && (
                     <div className="decision-actions">
                       <button
                         className="primary-button"
@@ -591,14 +609,64 @@ function App() {
                       >
                         Confirm statement
                       </button>
-
                       <button
                         className="link-button"
-                        onClick={() => void sendAction("edit", "")}
+                        onClick={() => {
+                          setEditingProblem(true);
+                          setDraft("");
+                        }}
                       >
                         ✎ Edit problem & rethink
                       </button>
                     </div>
+                  )}
+
+                  {editingProblem && (
+                    <form
+                      className="composer"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void sendAction("edit");
+                        setEditingProblem(false);
+                      }}
+                    >
+                      <label htmlFor="problem-edit">
+                        Describe the changes you want to make
+                      </label>
+                      <textarea
+                        id="problem-edit"
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        placeholder="Explain what should change in the problem statement..."
+                        rows={4}
+                        disabled={loading}
+                        autoFocus
+                      />
+                      <div className="composer-footer">
+                        <span>
+                          The agent will reassess the problem using your changes.
+                        </span>
+                        <button
+                          type="button"
+                          className="link-button"
+                          disabled={loading}
+                          onClick={() => {
+                            setEditingProblem(false);
+                            setDraft("");
+                            setError("");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          className="primary-button"
+                          type="submit"
+                          disabled={loading || !draft.trim()}
+                        >
+                          {loading ? "Re-evaluating..." : "Submit changes"}
+                        </button>
+                      </div>
+                    </form>
                   )}
                 </section>
               )}
@@ -628,6 +696,18 @@ function App() {
                   )}
                 </div>
               )}
+
+              {comparison && (
+                <section className="panel">
+                  <div className="section-title">
+                    <h2>05 — Solution Comparison & Recommendation</h2>
+                    <span className="status-pill">Completed</span>
+                  </div>
+                  <div className="result-text" dir="auto">
+                    {comparison}
+                  </div>
+                </section>
+              )}
             </>
           )}
         </section>
@@ -635,10 +715,11 @@ function App() {
 
       <footer className="footer">
         Strategic Intelligent Agent
-        <span>Problem clarity · Planning · Risk analysis</span>
+        <span>Problem clarity · Planning · Risk analysis · Solution comparison</span>
       </footer>
     </div>
   );
 }
 
 export default App;
+
