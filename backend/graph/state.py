@@ -1,4 +1,3 @@
-
 import operator
 from typing import Annotated, List, Literal, TypedDict
 
@@ -36,7 +35,9 @@ class AgentState(TypedDict, total=False):
         "confirmed",
         "unconfirmed",
     ]
-    assumptions: List[str]
+
+    # Structured assumptions
+    assumptions: List[dict]
 
     # Analysis outputs
     plan: str

@@ -22,11 +22,17 @@ interface Project {
   solution_comparison?: string;
 }
 
+interface Assumption {
+  assumption: string;
+  reason: string;
+  confidence: "High" | "Medium" | "Low";
+}
+
 interface Result {
   response?: string;
   statement?: string;
   statement_status?: string;
-  assumptions?: string[];
+  assumptions?: Assumption[];
   plan?: string;
   risks?: string;
   solution_comparison?: string;
@@ -115,6 +121,8 @@ function App() {
       return;
     }
 
+    const previousAssumptions = result?.assumptions ?? [];
+
     setLoading(true);
     setError("");
     setProgress([]);
@@ -147,7 +155,7 @@ function App() {
             }
           : old
       );
-    } else {
+    } else if (action !== "confirm") {
       setResult(null);
     }
 
@@ -286,7 +294,13 @@ function App() {
         throw new Error("The workflow ended without a final result.");
       }
 
-      setResult(finalResult);
+      setResult({
+        ...finalResult,
+        assumptions:
+          action === "confirm"
+            ? previousAssumptions
+            : (finalResult.assumptions ?? []),
+      });
 
       if (finalResult.response) {
         setMessages((old) => [
@@ -593,9 +607,27 @@ function App() {
                   {assumptions.length > 0 && (
                     <div className="assumptions-box">
                       <strong>Assumptions to validate</strong>
+
                       <ul>
                         {assumptions.map((item, index) => (
-                          <li key={`${index}-${item}`}>{item}</li>
+                          <li key={`${index}-${item.assumption}`}>
+                            <p>
+                              <strong>Assumption:</strong>{" "}
+                              {item.assumption}
+                            </p>
+
+                            <p>
+                              <strong>Reason:</strong>{" "}
+                              {item.reason}
+                            </p>
+
+                            <p>
+                              <strong>Confidence:</strong>{" "}
+                              <span className={`confidence-${item.confidence.toLowerCase()}`}>
+                                {item.confidence}
+                              </span>
+                            </p>
+                          </li>
                         ))}
                       </ul>
                     </div>

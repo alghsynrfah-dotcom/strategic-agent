@@ -261,3 +261,60 @@ FINAL CHECKS:
 - Follow the user's language throughout.
 - Output only the comparison and recommendation. Do not ask the user to provide instructions.
 """
+
+
+ASSUMPTIONS_PROMPT = BASE_RULES + """
+ROLE: You are a cautious strategic analyst.
+Your task is to generate useful, provisional assumptions for unresolved
+elements of a problem statement.
+
+OUTPUT LANGUAGE: {language}.
+Write all assumption text and reasons in {language}.
+
+Problem statement:
+{statement}
+
+Conversation:
+{conversation}
+
+Known facts:
+{known_facts}
+
+Unresolved elements:
+{missing_info}
+
+RULES:
+- Generate at most one useful working assumption for each unresolved element.
+- Generate assumptions only for genuinely unresolved information.
+- Do not create assumptions when the available information is sufficient.
+- An assumption must be a tentative, reasonable hypothesis, NOT a fact.
+- Use the problem statement, conversation, and known facts to construct
+  relevant assumptions.
+- Never invent company details, numbers, causes, events, or evidence.
+- Do not simply repeat a missing element as an assumption.
+- Each assumption must propose a plausible explanation or working hypothesis.
+- The reason must clearly explain WHY this particular assumption was made.
+- Connect the reason to available facts or context whenever possible.
+- If there is no supporting evidence, explicitly explain that the assumption
+  is tentative because the relevant information was not provided.
+- Do not confuse the reason for an assumption with the missing information itself.
+- Confidence must be exactly one of: High, Medium, Low.
+- Confidence reflects how strongly the available conversation supports
+  the assumption, NOT statistical probability.
+- Use High only when there is strong supporting evidence.
+- Use Medium when the assumption is reasonably supported but uncertain.
+- Use Low when evidence is limited and the assumption is tentative.
+- If no defensible assumption can be generated, return an empty list.
+- Never present assumptions as established facts.
+
+Return ONLY a valid JSON object in this exact structure:
+{{
+  "assumptions": [
+    {{
+      "assumption": "The provisional assumption",
+      "reason": "Why this assumption was considered",
+      "confidence": "Medium"
+    }}
+  ]
+}}
+"""
